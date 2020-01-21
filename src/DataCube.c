@@ -1466,11 +1466,26 @@ PUBLIC DataCube *DataCube_scale_noise_local(DataCube *self, size_t window_spat, 
 	DataCube_fill_flt(noiseCube, NAN);
 	
 	message("Measuring noise in running window.");
+
+	float progress=0; //Atomic on progress bar
 	
 	// Determine RMS across window centred on grid cell
-	for(size_t z = grid_start_z; z <= grid_end_z; z += grid_spec)
+        size_t z;
+	#ifdef OMP
+	size_t total_threads=omp_get_num_threads();
+	#else
+	size_t total_threads=1;
+	#endif
+
+        #pragma omp parallel for private(z) shared(progress,grid_spec) 
+	for(z = grid_start_z; z <= grid_end_z; z += grid_spec)
 	{
-		progress_bar("Progress: ", z - grid_start_z, grid_end_z - grid_start_z);
+		#pragma omp atomic update
+		progress++;
+		
+		#pragma omp critical	
+		progress_bar("Progress: ", progress*grid_spec, grid_end_z-grid_spec);
+		//progress_bar("Progress: ", z - grid_start_z, grid_end_z - grid_start_z);
 		
 		for(size_t y = grid_start_y; y < self->axis_size[1]; y += grid_spat)
 		{
@@ -1523,9 +1538,17 @@ PUBLIC DataCube *DataCube_scale_noise_local(DataCube *self, size_t window_spat, 
 		// First interpolate along z-axis if necessary
 		if(grid_spec > 1)
 		{
-			for(size_t y = grid_start_y; y <= grid_end_y; y += grid_spat)
+			progress=0;
+			size_t y;
+			#pragma omp parallel for private(y) shared(grid_spat)
+			for(y = grid_start_y; y <= grid_end_y; y += grid_spat)
 			{
-				progress_bar("Spectral: ", y - grid_start_y, grid_end_y - grid_start_y);
+				#pragma omp atomic update
+				progress++;
+
+				#pragma omp critical
+				progress_bar("Spectral: ", progress*grid_spat, grid_end_y);
+				//progress_bar("Spectral: ", y - grid_start_y, grid_end_y - grid_start_y);
 				
 				for(size_t x = grid_start_x; x <= grid_end_x; x += grid_spat)
 				{
@@ -1549,9 +1572,15 @@ PUBLIC DataCube *DataCube_scale_noise_local(DataCube *self, size_t window_spat, 
 		// Then interpolate across each spatial plane if necessary
 		if(grid_spat > 1)
 		{
-			for(size_t z = 0; z < self->axis_size[2]; ++z)
+			progress=0;
+			#pragma omp parallel for private(z) 
+			for(z = 0; z < self->axis_size[2]; ++z)
 			{
-				progress_bar("Spatial:  ", z, self->axis_size[2] - 1);
+				#pragma omp atomic update
+				progress++;
+				#pragma omp critical
+				progress_bar("Spatial:  ", progress, self->axis_size[2] - 1);
+				//progress_bar("Spatial:  ", z, self->axis_size[2] - 1);
 				
 				// Interpolate along y-axis
 				for(size_t x = grid_start_x; x <= grid_end_x; x += grid_spat)
@@ -1756,6 +1785,7 @@ PUBLIC void DataCube_gaussian_filter(DataCube *self, const double sigma)
 		data_row_flt = (float *)memory(MALLOC, self->axis_size[0] + 2 * filter_radius, sizeof(float));
 		data_col_flt = (float *)memory(MALLOC, self->axis_size[1] + 2 * filter_radius, sizeof(float));
 		column_flt   = (float *)memory(MALLOC, self->axis_size[1], sizeof(float));
+		float filters[self->axis_size[1]][self->axis_size[1] + 2 * filter_radius][self->axis_size[0] + 2 * filter_radius];
 	}
 	else
 	{
@@ -1769,14 +1799,14 @@ PUBLIC void DataCube_gaussian_filter(DataCube *self, const double sigma)
 	char *ptr = self->data + self->data_size * self->word_size;
 	const size_t size_1 = self->axis_size[0] * self->axis_size[1];
 	const size_t size_2 = size_1 * self->word_size;
-	
 	// Apply filter
 	while(ptr > self->data)
 	{
 		ptr -= size_2;
 		if(self->data_type == -32) filter_gauss_2d_flt((float *)ptr, column_flt, data_row_flt, data_col_flt, self->axis_size[0], self->axis_size[1], n_iter, filter_radius);
-		else filter_gauss_2d_dbl((double *)ptr, column_dbl, data_row_dbl, data_col_dbl, self->axis_size[0], self->axis_size[1], n_iter, filter_radius);
+		else{ filter_gauss_2d_dbl((double *)ptr, column_dbl, data_row_dbl, data_col_dbl, self->axis_size[0], self->axis_size[1], n_iter, filter_radius); printf("Double\n");}
 	}
+
 	
 	// Release memory
 	free(data_row_flt);
@@ -2293,7 +2323,9 @@ PUBLIC void DataCube_autoflag(const DataCube *self, const double threshold, cons
 			const float *ptr = (float *)self->data;
 			
 			// Measure noise in each channel
-			for(size_t i = 0; i < size_z; ++i)
+			size_t i;
+			//#pragma omp parallel for private(i) 
+			for(i = 0; i < size_z; ++i)
 			{
 				noise_array[i] = robust_noise_flt(ptr, size_xy);
 				ptr += size_xy;
@@ -2377,7 +2409,7 @@ PUBLIC void DataCube_autoflag(const DataCube *self, const double threshold, cons
 		// 32-bit single-precision
 		DataCube *noise_array = DataCube_blank(size_x, size_y, 1, -64, self->verbosity);
 		double *spectrum = (double *)memory(MALLOC, size_z, sizeof(double));
-		
+	
 		// Loop over all pixels
 		for(size_t y = size_y; y--;)
 		{
@@ -2697,18 +2729,39 @@ PUBLIC void DataCube_run_scfind(const DataCube *self, DataCube *maskCube, const 
 			if(Array_dbl_get(kernels_spat, i) || Array_siz_get(kernels_spec, j))
 			{
 				// Smoothing required; create a copy of the original cube
-				DataCube *smoothedCube = DataCube_copy(self);
-				
+				#ifdef OMP
+					DataCube *smoothedCube = fortran_DataCube_copy(self);
+				#else
+					DataCube *smoothedCube = DataCube_copy(self);			
+				#endif
 				// Set flux of already detected pixels to maskScaleXY * rms
-				DataCube_set_masked_32(smoothedCube, maskCube, maskScaleXY * rms);
-				
+				#ifdef OMP
+					fortran_DataCube_set_masked_32(smoothedCube, maskCube, maskScaleXY * rms);
+				#else
+					DataCube_set_masked_32(smoothedCube, maskCube, maskScaleXY * rms);
+				#endif
+
 				// Spatial and spectral smoothing
-				if(Array_dbl_get(kernels_spat, i) > 0.0) DataCube_gaussian_filter(smoothedCube, Array_dbl_get(kernels_spat, i) / FWHM_CONST);
-				if(Array_siz_get(kernels_spec, j) > 0)   DataCube_boxcar_filter(smoothedCube, Array_siz_get(kernels_spec, j) / 2);
+				#ifdef OMP
+					if(Array_dbl_get(kernels_spat, i) > 0.0) fortran_DataCube_gaussian_filter(smoothedCube, Array_dbl_get(kernels_spat, i) / FWHM_CONST);
+				#else
+					if(Array_dbl_get(kernels_spat, i) > 0.0) DataCube_gaussian_filter(smoothedCube, Array_dbl_get(kernels_spat, i) / FWHM_CONST);
+				#endif
+
+				#ifdef OMP
+					if(Array_siz_get(kernels_spec, j) > 0)  fortran_DataCube_boxcar_filter(smoothedCube, Array_siz_get(kernels_spec, j) / 2);
+				#else
+					if(Array_siz_get(kernels_spec, j) > 0)  DataCube_boxcar_filter(smoothedCube, Array_siz_get(kernels_spec, j) / 2);	
+				#endif
 				
 				// Copy original blanks into smoothed cube again
 				// (these were set to 0 during smoothing)
-				DataCube_copy_blanked(smoothedCube, self);
+
+				#ifdef OMP
+					fortran_DataCube_copy_blanked(smoothedCube, self);
+				#else
+					DataCube_copy_blanked(smoothedCube, self);
+				#endif
 				
 				// Calculate the RMS of the smoothed cube
 				if(method == NOISE_STAT_STD)      rms_smooth = DataCube_stat_std(smoothedCube, 0.0, cadence, range);
@@ -2718,7 +2771,11 @@ PUBLIC void DataCube_run_scfind(const DataCube *self, DataCube *maskCube, const 
 				message("Noise level:       %.3e", rms_smooth);
 				
 				// Add pixels above threshold to mask
-				DataCube_mask_32(smoothedCube, maskCube, threshold * rms_smooth, -1);
+				#ifdef OMP
+					fortran_DataCube_mask_32(smoothedCube, maskCube, threshold * rms_smooth, -1);
+				#else
+					DataCube_mask_32(smoothedCube, maskCube, threshold * rms_smooth, -1);
+				#endif
 				
 				// Delete smoothed cube again
 				DataCube_delete(smoothedCube);

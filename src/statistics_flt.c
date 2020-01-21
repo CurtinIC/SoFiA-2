@@ -1194,7 +1194,7 @@ void filter_boxcar_1d_flt(float *data, float *data_copy, const size_t size, cons
 	
 	// Make copy of data, taking care of NaN
 	for(i = size; i--;) data_copy[filter_radius + i] = FILTER_NAN(data[i]);
-	
+
 	// Fill overlap regions with 0
 	for(i = filter_radius; i--;) data_copy[i] = data_copy[size + filter_radius + i] = 0.0;
 	
@@ -1205,7 +1205,9 @@ void filter_boxcar_1d_flt(float *data, float *data_copy, const size_t size, cons
 	
 	// Recursively apply boxcar filter to  all previous data points
 	for(i = size - 1; i--;) data[i] = data[i + 1] + (data_copy[i] - data_copy[filter_size + i]) * inv_filter_size;
-	
+
+	int k=0;
+	data[size-1]=0.0;
 	return;
 }
 
@@ -1289,15 +1291,20 @@ void filter_gauss_2d_flt(float *data, float *data_copy, float *data_row, float *
 	const size_t size_xy = size_x * size_y;
 	float *ptr = data + size_xy;
 	float *ptr2;
-	
+	float *ptr_cpy=ptr;
+
+
 	// Run row filter (along x-axis)
 	// This is straightforward, as the data are contiguous in x.
 	while(ptr > data)
 	{
 		ptr -= size_x;
-		for(size_t i = n_iter; i--;) filter_boxcar_1d_flt(ptr, data_row, size_x, filter_radius);
+		for(size_t i = n_iter; i--;){
+			 filter_boxcar_1d_flt(ptr, data_row, size_x, filter_radius);
+		}
 	}
-	
+
+
 	// Run column filter (along y-axis)
 	// This is more complicated, as the data are non-contiguous in y.
 	for(size_t x = size_x; x--;)
@@ -1323,7 +1330,6 @@ void filter_gauss_2d_flt(float *data, float *data_copy, float *data_row, float *
 			ptr -= size_x;
 		}
 	}
-	
 	return;
 }
 

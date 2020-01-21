@@ -1,7 +1,9 @@
 *.o
 *.out
 *.fits
-sofia
+compile*
+sofia*
+src/lib*
 
 Analysis
 Docs
