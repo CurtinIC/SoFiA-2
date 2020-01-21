@@ -2,6 +2,7 @@
 *.out
 *.fits
 compile*
+!compile_parallel*
 sofia*
 src/lib*
 
