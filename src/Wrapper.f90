@@ -182,7 +182,7 @@ do j=1,y
                 a(i,j)=a(i+1,j)+((tmp(i,j)-tmp(i+filter_size,j))*inv_filter_size)
         end do
 end do
-a(x,:)=0
+!a(x,:)=0
 end subroutine
 
 
@@ -221,7 +221,7 @@ do j=y-1,1,-1
                 a(i,j)=a(i,j+1)+((tmp(i,j)-tmp(i,j+filter_size))*inv_filter_size)
         end do
 end do
-a(:,y)=0
+!a(:,y)=0
 end subroutine
 
 
@@ -261,7 +261,7 @@ do j=z-1,1,-1
         end do
 end do
 
-a(:,z)=0
+!a(:,z)=0
 
 end subroutine
 

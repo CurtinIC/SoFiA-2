@@ -1206,8 +1206,8 @@ void filter_boxcar_1d_flt(float *data, float *data_copy, const size_t size, cons
 	// Recursively apply boxcar filter to  all previous data points
 	for(i = size - 1; i--;) data[i] = data[i + 1] + (data_copy[i] - data_copy[filter_size + i]) * inv_filter_size;
 
-	int k=0;
-	data[size-1]=0.0;
+	//int k=0;
+	//data[size-1]=0.0;
 	return;
 }
 

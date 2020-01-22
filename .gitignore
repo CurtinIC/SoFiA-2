@@ -2,6 +2,12 @@
 *.out
 *.fits
 compile*
+Make*
+configure
+configure.ac
+*cache
+config.log
+config.st*
 !compile_parallel*
 sofia*
 src/lib*
